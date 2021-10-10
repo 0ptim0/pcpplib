@@ -36,6 +36,11 @@ void gpio_class::SetOff(void)
     HAL_GPIO_WritePin(cfg->GPIO, cfg->GPIO_InitStructure.Pin, GPIO_PIN_RESET);
 }
 
+void gpio_class::Toggle(void) 
+{   
+    HAL_GPIO_TogglePin(cfg->GPIO, cfg->GPIO_InitStructure.Pin);
+}
+
 int gpio_class::ClockEnable(void)
 {
     switch(reinterpret_cast<uint32_t>(cfg->GPIO)) {

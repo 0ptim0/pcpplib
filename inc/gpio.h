@@ -24,5 +24,6 @@ public:
     int SetConf(const gpio_cfg_t *cfg);
     void SetOn(void);
     void SetOff(void);
+    void Toggle(void);
     int ClockEnable(void);
 };

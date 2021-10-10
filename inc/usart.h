@@ -19,11 +19,16 @@ private:
 private:
     gpio_class TX;
     gpio_class RX;
+private:
+    int ErrorHandler(void);
+    int EnableIRQn(void);
+    int DisableIRQn(void);
+    int ClockEnable(void);
 public:
     usart_class(const usart_cfg_t *const cfg);
     int Init(void);
-    int ClockEnable(void);
     int Transmit(uint8_t *pdata, uint16_t length);
     int Receive(uint8_t *pdata, uint16_t length);
     int Handler(void);
+
 };

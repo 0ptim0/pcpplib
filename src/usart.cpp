@@ -4,6 +4,8 @@
 static SemaphoreHandle_t mutex;
 static SemaphoreHandle_t semaphore;
 
+static uint32_t e = 0;
+
 usart_class::usart_class(const usart_cfg_t *const cfg) 
             : cfg(cfg), TX(cfg->tx_cfg), RX(cfg->rx_cfg)
 {
@@ -11,6 +13,7 @@ usart_class::usart_class(const usart_cfg_t *const cfg)
 
 int usart_class::Init(void)
 {   
+    portENTER_CRITICAL();
     int rv;
     if(rv = this->ClockEnable() != 0) return rv;
     
@@ -18,18 +21,6 @@ int usart_class::Init(void)
     if(rv = RX.Init() != 0) return rv;
 
     NVIC_SetPriorityGrouping(0);
-    if(cfg->USART == USART1) {
-        NVIC_EnableIRQ(USART1_IRQn);
-        NVIC_SetPriority(USART1_IRQn, 11);
-    } else if(cfg->USART == USART2) {
-        NVIC_EnableIRQ(USART2_IRQn);
-        NVIC_SetPriority(USART2_IRQn, 11);
-    } else if(cfg->USART == USART3) {
-        NVIC_EnableIRQ(USART3_IRQn);
-        NVIC_SetPriority(USART3_IRQn, 11);
-    } else {
-        return EINVAL;
-    }
 
     USART_InitStructure.Instance = cfg->USART;
     USART_InitStructure.Init.BaudRate = cfg->speed;
@@ -42,20 +33,27 @@ int usart_class::Init(void)
     if(HAL_UART_Init(&USART_InitStructure) != HAL_OK) return EACCES;
     if(mutex == NULL) mutex = xSemaphoreCreateMutex();
     if(semaphore == NULL) semaphore = xSemaphoreCreateBinary();
+    portEXIT_CRITICAL();
     return 0;
 }
 
 int usart_class::Transmit(uint8_t *pdata, uint16_t length) 
 {   
-    if(xSemaphoreTake(mutex, cfg->timeout) == pdTRUE) {
-
+    if(xSemaphoreTake(mutex, pdMS_TO_TICKS(cfg->timeout)) == pdTRUE) {
+        
+        HAL_UART_Init(&USART_InitStructure);
+        EnableIRQn();
         HAL_UART_Transmit_IT(&USART_InitStructure, pdata, length);
 
-        if(xSemaphoreTake(semaphore, pdMS_TO_TICKS(cfg->timeout)) == pdFALSE) {
+        if(xSemaphoreTake(semaphore, pdMS_TO_TICKS(cfg->timeout)) == pdFALSE &&
+        (__HAL_UART_GET_FLAG(&USART_InitStructure, USART_SR_TXE))) {
             xSemaphoreGive(mutex);
+            HAL_UART_AbortTransmit_IT(&USART_InitStructure);
+            HAL_UART_DeInit(&USART_InitStructure);
             return ETIME;
         } else {
             xSemaphoreGive(mutex);
+            HAL_UART_DeInit(&USART_InitStructure);
             return 0;
         }
     } else {
@@ -65,15 +63,21 @@ int usart_class::Transmit(uint8_t *pdata, uint16_t length)
 
 int usart_class::Receive(uint8_t *pdata, uint16_t length) 
 {   
-    if(xSemaphoreTake(mutex, cfg->timeout) == pdTRUE) {
+    if(xSemaphoreTake(mutex, pdMS_TO_TICKS(cfg->timeout)) == pdTRUE) {
 
+        HAL_UART_Init(&USART_InitStructure);
+        EnableIRQn();
         HAL_UART_Receive_IT(&USART_InitStructure, pdata, length);
 
-        if(xSemaphoreTake(semaphore, pdMS_TO_TICKS(cfg->timeout)) == pdFALSE) {
+        if(xSemaphoreTake(semaphore, pdMS_TO_TICKS(cfg->timeout)) == pdFALSE &&
+        !(__HAL_UART_GET_FLAG(&USART_InitStructure, USART_SR_RXNE))) {
             xSemaphoreGive(mutex);
+            HAL_UART_AbortReceive_IT(&USART_InitStructure);
+            HAL_UART_DeInit(&USART_InitStructure);
             return ETIME;
         } else {
             xSemaphoreGive(mutex);
+            HAL_UART_DeInit(&USART_InitStructure);
             return 0;
         }
     } else {
@@ -87,12 +91,66 @@ int usart_class::Handler(void)
 
     HAL_UART_IRQHandler(&USART_InitStructure);
 
-    if(USART_InitStructure.gState == HAL_UART_STATE_READY) {
+    if(USART_InitStructure.ErrorCode != HAL_UART_ERROR_NONE) {
+        ErrorHandler();
+    }
+
+    if(USART_InitStructure.RxState == HAL_UART_STATE_READY) {
+        DisableIRQn();
         xSemaphoreGiveFromISR(semaphore, &xHigherPriorityTaskWoken);
         if(xHigherPriorityTaskWoken == pdTRUE) {
             portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
         }
     }
+    return 0;
+}
+
+int usart_class::ErrorHandler(void) 
+{
+    HAL_UART_AbortReceive_IT(&USART_InitStructure);
+    __HAL_UART_CLEAR_OREFLAG(&USART_InitStructure);
+    __HAL_UART_CLEAR_FEFLAG(&USART_InitStructure);
+    HAL_UART_DeInit(&USART_InitStructure);
+}
+
+
+int usart_class::EnableIRQn(void) 
+{
+    portENTER_CRITICAL();
+    if(cfg->USART == USART1) {
+        NVIC_EnableIRQ(USART1_IRQn);
+        NVIC_SetPriority(USART1_IRQn, 11);
+    } else if(cfg->USART == USART2) {
+        NVIC_EnableIRQ(USART2_IRQn);
+        NVIC_SetPriority(USART2_IRQn, 11);
+    } else if(cfg->USART == USART3) {
+        NVIC_EnableIRQ(USART3_IRQn);
+        NVIC_SetPriority(USART3_IRQn, 11);
+    } else {
+        portEXIT_CRITICAL();
+        return EINVAL;
+    }
+    portEXIT_CRITICAL();
+    return 0;
+}
+
+int usart_class::DisableIRQn(void) 
+{
+    portENTER_CRITICAL();
+    if(cfg->USART == USART1) {
+        NVIC_DisableIRQ(USART1_IRQn);
+        NVIC_SetPriority(USART1_IRQn, 11);
+    } else if(cfg->USART == USART2) {
+        NVIC_DisableIRQ(USART2_IRQn);
+        NVIC_SetPriority(USART2_IRQn, 11);
+    } else if(cfg->USART == USART3) {
+        NVIC_DisableIRQ(USART3_IRQn);
+        NVIC_SetPriority(USART3_IRQn, 11);
+    } else {
+        portEXIT_CRITICAL();
+        return EINVAL;
+    }
+    portEXIT_CRITICAL();
     return 0;
 }
 
