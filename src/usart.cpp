@@ -4,8 +4,6 @@
 static SemaphoreHandle_t mutex;
 static SemaphoreHandle_t semaphore;
 
-static uint32_t e = 0;
-
 usart_class::usart_class(const usart_cfg_t *const cfg) 
             : cfg(cfg), TX(cfg->tx_cfg), RX(cfg->rx_cfg)
 {
@@ -131,10 +129,11 @@ int usart_class::Handler(void)
 
 int usart_class::ErrorHandler(void) 
 {
-    HAL_UART_AbortReceive_IT(&USART_InitStructure);
-    __HAL_UART_CLEAR_OREFLAG(&USART_InitStructure);
-    __HAL_UART_CLEAR_FEFLAG(&USART_InitStructure);
-    HAL_UART_DeInit(&USART_InitStructure);
+    if(state == USART_RECEIVE) {
+        HAL_UART_AbortReceive_IT(&USART_InitStructure);
+        __HAL_UART_CLEAR_OREFLAG(&USART_InitStructure);
+        __HAL_UART_CLEAR_FEFLAG(&USART_InitStructure);
+    }
 }
 
 int usart_class::EnableIRQn(void) 
