@@ -4,7 +4,7 @@
 static SemaphoreHandle_t mutex;
 static SemaphoreHandle_t semaphore;
 
-usart_class::usart_class(const usart_cfg_t *const cfg) 
+usart_class::usart_class(usart_cfg_t *cfg) 
             : cfg(cfg), TX(cfg->tx_cfg), RX(cfg->rx_cfg)
 {
 }
